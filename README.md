@@ -1,4 +1,4 @@
-# ophir-desktop
+# Ophir-Desktop
 
 A quantitative trader IDE that combines a Python development environment with AI-powered algorithmic trading. Connects to the tastytrade REST API and DXLink real-time streaming service. Built with PyQt6 and designed to run as a native desktop application.
 
@@ -11,7 +11,7 @@ A quantitative trader IDE that combines a Python development environment with AI
 
 ## Description
 
-ophir-desktop is an open-source desktop IDE built for quantitative developers who want to research, backtest, and deploy algorithmic trading strategies without leaving Python. It streams live 1-minute candle data directly from tastytrade's DXLink WebSocket feed and renders an interactive candlestick chart with signal overlays, indicator sub-panels, and simulated trade management — all inside a single native window with a built-in Python code editor.
+Ophir-Desktop is an open-source desktop IDE built for quantitative developers who want to research, backtest, and deploy algorithmic trading strategies without leaving Python. It streams live 1-minute candle data directly from tastytrade's DXLink WebSocket feed and renders an interactive candlestick chart with signal overlays, indicator sub-panels, and simulated trade management — all inside a single native window with a built-in Python code editor.
 
 The platform is **deliberately strategy-agnostic**. ophir-desktop provides the institutional-grade infrastructure — real-time data, execution engine, performance analytics, and an RL framework — and gets out of the way so you can focus entirely on your alpha. Write your strategy in the IDE, validate it against live market data in simulation, and when it's ready, deploy it to **Ophir Cloud** for low-latency live execution.
 
