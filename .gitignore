@@ -1,0 +1,52 @@
+# /ophir-desktop/.gitignore
+
+# Working strategy files — private trading logic, never commit
+src/strategies/alpha.py
+src/strategies/mean_reversion.py
+
+# Allow the public-facing template to be tracked
+!src/strategies/template_alpha.py
+
+# Legacy sandbox paths (kept for safety)
+src/sandbox/alpha.py
+src/sandbox/my_custom_alpha.py
+src/sandbox/*_alpha.py
+!src/sandbox/template_alpha.py
+
+# IDE
+.idea
+.vscode
+
+# Virtual environment
+.venv
+venv
+env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info
+.pytest_cache
+
+# Secrets — never commit
+.env
+
+# Build / distribution
+build/
+dist/
+*.spec
+
+# Trained models and large binaries
+*.zip
+
+# Logs
+*.log
+
+# Runtime cache (candles, sim trades, preferences)
+.mtrade
+
+# Claude Code
+.claude
+mtrade_api.log.1
