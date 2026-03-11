@@ -682,10 +682,10 @@ class OphirTradeIDE(QMainWindow):
         menu_edit.setStyleSheet(menu_style)
 
         act_undo = QAction("Undo\tCtrl+Z", self)
-        act_undo.triggered.connect(self.editor.undo)
+        act_undo.triggered.connect(lambda: self.editor.undo() if self.editor else None)
 
         act_redo = QAction("Redo\tCtrl+Y", self)
-        act_redo.triggered.connect(self.editor.redo)
+        act_redo.triggered.connect(lambda: self.editor.redo() if self.editor else None)
 
         menu_edit.addAction(act_undo)
         menu_edit.addAction(act_redo)
