@@ -7,8 +7,8 @@ import shutil
 import pyqtgraph as pg
 from PyQt6.QtWidgets import (
     QMainWindow, QDockWidget, QTextEdit,
-    QToolBar, QPushButton, QToolButton, QMenu, QWidget, QVBoxLayout, QLabel, QLineEdit,
-    QComboBox, QMessageBox, QFileDialog, QInputDialog
+    QToolBar, QPushButton, QToolButton, QMenu, QTabWidget, QWidget, QVBoxLayout, QLabel,
+    QLineEdit, QComboBox, QMessageBox, QFileDialog, QInputDialog
 )
 from PyQt6.QtGui import QAction
 from PyQt6.QtCore import Qt, QSize
@@ -51,25 +51,42 @@ class OphirTradeIDE(QMainWindow):
         self.tick_counter = 0
         self.live_curve = None  # This will hold our specific pyqtgraph line
 
-        # Track the currently open file so we can save it
-        self.current_file_path = None
         self.recent_files = []  # Max 8 entries, most-recent first
+
+        # Per-tab file path registry  {QsciScintilla instance -> absolute path}
+        self._tab_paths = {}
 
         # Apply the unified, high-contrast dark theme across the entire application
         self.setStyleSheet("""
-                    QMainWindow { background-color: #16161e; } /* Match deep editor background */
+                    QMainWindow { background-color: #16161e; }
                     QDockWidget { color: #aaaaaa; font-weight: bold; }
                     QDockWidget::title { background: #1a1a22; padding: 6px; border-bottom: 1px solid #2d2d30;}
-
-                    /* Update the terminal and explorer docks to be slightly cohesive with new tones */
                     QTextEdit, QListWidget, QTreeView { background-color: #101014; color: #cccccc; border: none; }
-
                     QToolBar { background-color: #1a1a22; border: none; spacing: 10px; padding: 5px; }
+                    QTabWidget::pane { border: none; background: #1e1e2e; }
+                    QTabBar { background: #13131a; }
+                    QTabBar::tab {
+                        background: #13131a; color: #6c7086;
+                        padding: 5px 16px; min-width: 100px;
+                        border-right: 1px solid #1e1e2e;
+                    }
+                    QTabBar::tab:selected {
+                        background: #1e1e2e; color: #cdd6f4;
+                        border-top: 2px solid #bd93f9;
+                    }
+                    QTabBar::tab:hover:!selected { background: #1a1a2e; color: #a6adc8; }
+                    QTabBar::close-button {
+                        subcontrol-position: right;
+                    }
                 """)
 
-        # Central Code Editor
-        self.editor = OphirCodeEditor()
-        self.setCentralWidget(self.editor)
+        # Central Tabbed Editor
+        self.tab_widget = QTabWidget()
+        self.tab_widget.setTabsClosable(True)
+        self.tab_widget.setMovable(True)
+        self.tab_widget.tabCloseRequested.connect(self._on_tab_close_requested)
+        self.tab_widget.currentChanged.connect(self._on_tab_changed)
+        self.setCentralWidget(self.tab_widget)
 
         # --- INITIALIZE THE SANDBOX (file setup only — no engine load yet) ---
         self._initialize_sandbox()
@@ -101,11 +118,9 @@ class OphirTradeIDE(QMainWindow):
         self.save_as_shortcut = QShortcut(QKeySequence.StandardKey.SaveAs, self)
         self.save_as_shortcut.activated.connect(self.action_save_as)
 
-        # --- Dirty File Indicator ---
-        self.editor.modificationChanged.connect(self._on_editor_modified)
-
         # --- ENGINE LOAD: UI is fully built, feedback will now be visible ---
         self.alpha_engine = None
+        self._armed_strategy_path = None  # Absolute path of the currently running engine
         if self.current_file_path:
             self._load_active_strategy(self.current_file_path)
 
