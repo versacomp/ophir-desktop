@@ -305,6 +305,17 @@ class OphirTradeIDE(QMainWindow):
 
     def _load_active_strategy(self, file_path: str):
         """Syntax-checks then dynamically loads the strategy class from the given file."""
+        # While a live stream is running, only the currently armed file may be
+        # hot-reloaded (e.g. Ctrl+S on the active strategy). Switching to a
+        # different file would put the position manager in an undefined state.
+        if getattr(self, 'streamer_thread', None) is not None:
+            incoming = os.path.abspath(file_path)
+            if incoming != self._armed_strategy_path:
+                self.append_log(
+                    f"[ENGINE] Locked — disconnect the live feed before switching strategies "
+                    f"({os.path.basename(file_path)}).")
+                return
+
         fname = os.path.basename(file_path)
 
         # --- PHASE 1: COMPILE CHECK ---
@@ -324,6 +335,7 @@ class OphirTradeIDE(QMainWindow):
         # --- PHASE 2: LOAD & INSTANTIATE ---
         try:
             self.alpha_engine = load_strategy(file_path)
+            self._armed_strategy_path = os.path.abspath(file_path)
             strat_name = getattr(self.alpha_engine, 'STRATEGY_NAME', type(self.alpha_engine).__name__)
             strat_desc = getattr(self.alpha_engine, 'STRATEGY_DESCRIPTION', 'No description provided.')
             self.lbl_strategy_name.setText(f"Strategy: {strat_name}")
