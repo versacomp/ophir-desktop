@@ -135,6 +135,113 @@ class OphirTradeIDE(QMainWindow):
         # Execution Lock: 1 = Long, -1 = Short, 0 = Flat
         self.market_position = 0
 
+    # ------------------------------------------------------------------
+    # Properties — delegate to the active tab so the rest of the class
+    # can reference self.editor and self.current_file_path unchanged.
+    # ------------------------------------------------------------------
+
+    @property
+    def editor(self):
+        """Returns the QsciScintilla instance in the currently active tab."""
+        return self.tab_widget.currentWidget()
+
+    @property
+    def current_file_path(self):
+        """Returns the file path associated with the active tab."""
+        return self._tab_paths.get(self.tab_widget.currentWidget())
+
+    @current_file_path.setter
+    def current_file_path(self, value):
+        w = self.tab_widget.currentWidget()
+        if w is not None:
+            self._tab_paths[w] = value
+
+    # ------------------------------------------------------------------
+
+    def _open_in_tab(self, content: str, file_path: str):
+        """
+        Opens content in a tab. If the file is already open, switches to it.
+        Handles editor creation, signal wiring, and tab path registration.
+        """
+        abs_path = os.path.abspath(file_path)
+
+        # Switch to existing tab if the file is already open
+        for i in range(self.tab_widget.count()):
+            w = self.tab_widget.widget(i)
+            if self._tab_paths.get(w) == abs_path:
+                self.tab_widget.setCurrentIndex(i)
+                return
+
+        # Create a fresh editor instance for this tab
+        ed = OphirCodeEditor()
+        ed.blockSignals(True)
+        ed.setText(content)
+        ed.setModified(False)
+        ed.blockSignals(False)
+        ed.modificationChanged.connect(self._on_editor_modified)
+
+        fname = os.path.basename(file_path)
+        idx = self.tab_widget.addTab(ed, fname)
+        self.tab_widget.setTabToolTip(idx, abs_path)
+        self.tab_widget.setCurrentIndex(idx)
+        self._tab_paths[ed] = abs_path
+
+    def _on_tab_close_requested(self, index: int):
+        """Checks for unsaved changes on the closing tab, then removes it."""
+        ed = self.tab_widget.widget(index)
+        if ed and ed.isModified():
+            path = self._tab_paths.get(ed, "")
+            fname = os.path.basename(path) if path else "untitled"
+            msg = QMessageBox(self)
+            msg.setWindowTitle("Unsaved Changes")
+            msg.setText(f"<b>{fname}</b> has unsaved changes.")
+            msg.setInformativeText("Do you want to save before closing?")
+            msg.setIcon(QMessageBox.Icon.Warning)
+            msg.setStandardButtons(
+                QMessageBox.StandardButton.Save |
+                QMessageBox.StandardButton.Discard |
+                QMessageBox.StandardButton.Cancel
+            )
+            msg.setDefaultButton(QMessageBox.StandardButton.Save)
+            msg.setStyleSheet("""
+                QMessageBox { background-color: #1e1e2e; color: #cdd6f4; }
+                QLabel { color: #cdd6f4; font-family: Consolas; }
+                QPushButton { background-color: #313244; color: #cdd6f4;
+                    border: 1px solid #45475a; padding: 5px 16px; font-family: Consolas; }
+                QPushButton:hover { background-color: #45475a; }
+                QPushButton:default { border: 1px solid #89b4fa; color: #89b4fa; }
+            """)
+            result = msg.exec()
+            if result == QMessageBox.StandardButton.Cancel:
+                return
+            if result == QMessageBox.StandardButton.Save:
+                # Temporarily activate this tab to save it correctly
+                self.tab_widget.setCurrentIndex(index)
+                self.save_current_file()
+
+        self._tab_paths.pop(ed, None)
+        self.tab_widget.removeTab(index)
+
+    def _on_tab_changed(self, index: int):
+        """Updates toolbar labels and re-arms the engine when the active tab changes."""
+        if index == -1 or not hasattr(self, 'lbl_current_file'):
+            return
+        ed = self.tab_widget.widget(index)
+        if ed is None:
+            return
+        path = self._tab_paths.get(ed, "")
+        fname = os.path.basename(path) if path else "untitled"
+        modified = ed.isModified()
+        display = f"  {fname} *" if modified else f"  {fname}"
+        colour = "#f1fa8c" if modified else "#6272a4"
+        self.lbl_current_file.setText(display)
+        self.lbl_current_file.setStyleSheet(
+            f"color: {colour}; font-family: Consolas; font-size: 12px; padding: 3px 6px;")
+        base = "Ophir Desktop - Quant Developer IDE"
+        self.setWindowTitle(f"{base}  —  {fname} *" if modified else f"{base}  —  {fname}")
+        if path and hasattr(self, 'alpha_engine'):
+            self._load_active_strategy(path)
+
     def _initialize_sandbox(self):
         """Ensures the sandbox environment is set up and loads the alpha into the editor."""
         sandbox_dir = "./strategies"
