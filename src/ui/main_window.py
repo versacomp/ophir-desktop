@@ -808,17 +808,18 @@ class OphirTradeIDE(QMainWindow):
             return False
 
     def closeEvent(self, event):
-        """Intercepts the window close and checks for unsaved changes first."""
-        if self._confirm_discard_changes():
-            event.accept()
-        else:
-            event.ignore()
+        """Intercepts the window close and checks every open tab for unsaved changes."""
+        for i in range(self.tab_widget.count()):
+            ed = self.tab_widget.widget(i)
+            if ed and ed.isModified():
+                self.tab_widget.setCurrentIndex(i)
+                if not self._confirm_discard_changes():
+                    event.ignore()
+                    return
+        event.accept()
 
     def action_new_file(self):
-        """Prompts for a filename, creates it from the template, and opens it in the editor."""
-        if not self._confirm_discard_changes():
-            return
-
+        """Prompts for a filename, creates it from the template, and opens it in a new tab."""
         name, ok = QInputDialog.getText(self, "New Strategy File", "File name (without .py):")
         if not ok or not name.strip():
             return
@@ -848,20 +849,13 @@ class OphirTradeIDE(QMainWindow):
         with open(new_path, 'r', encoding='utf-8') as f:
             content = f.read()
 
-        self.current_file_path = new_path
-        self.editor.blockSignals(True)
-        self.editor.setText(content)
-        self.editor.setModified(False)
-        self.editor.blockSignals(False)
+        self._open_in_tab(content, new_path)
         self._add_to_recent(new_path)
         self.append_log(f"[FILE] Created new strategy file: {name}")
         self._load_active_strategy(new_path)
 
     def action_open_file(self):
-        """Opens a file picker and loads the selected .py file into the editor."""
-        if not self._confirm_discard_changes():
-            return
-
+        """Opens a file picker and loads the selected .py file in a new tab."""
         path, _ = QFileDialog.getOpenFileName(
             self, "Open Strategy File",
             os.path.abspath("./strategies"),
