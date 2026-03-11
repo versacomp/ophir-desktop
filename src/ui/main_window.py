@@ -7,13 +7,14 @@ import shutil
 import requests
 import pyqtgraph as pg
 from engine.compiler import compile_strategy_package
+import websocket
 from PyQt6.QtWidgets import (
     QMainWindow, QDockWidget, QTextEdit,
     QToolBar, QPushButton, QToolButton, QMenu, QTabWidget, QWidget, QVBoxLayout, QLabel,
     QLineEdit, QComboBox, QMessageBox, QFileDialog, QInputDialog
 )
 from PyQt6.QtGui import QAction
-from PyQt6.QtCore import Qt, QSize, QSettings
+from PyQt6.QtCore import Qt, QSize, QSettings, QThread, pyqtSignal
 from PyQt6.QtGui import QKeySequence, QShortcut
 from ui.editor import OphirCodeEditor
 from ui.chart import OphirTradeChart
@@ -26,6 +27,38 @@ from engine.broker import OphirBroker
 from collections import deque
 from engine.strategy_loader import load_strategy
 from engine.database import OphirDatabase
+
+
+class TelemetryThread(QThread):
+    """Background thread that tails the cloud execution logs via WebSocket."""
+    # This signal safely transports the string from the background thread to the GUI
+    log_signal = pyqtSignal(str)
+
+    def __init__(self, container_id, parent=None):
+        super().__init__(parent)
+        self.container_id = container_id
+        # Point this to our new FastAPI WebSocket endpoint
+        self.ws_url = f"ws://localhost:8000/api/v1/telemetry/{self.container_id}"
+
+    def run(self):
+        try:
+            # Establish the connection
+            ws = websocket.WebSocket()
+            ws.connect(self.ws_url)
+            self.log_signal.emit(f"[TELEMETRY] Bound to Cloud Node {self.container_id} stream...")
+
+            # Continuously listen for incoming Rust logs
+            while True:
+                log_line = ws.recv()
+                if log_line:
+                    self.log_signal.emit(f"☁️ {log_line}")
+
+        except websocket.WebSocketConnectionClosedException:
+            self.log_signal.emit(f"[TELEMETRY] Stream closed for {self.container_id}.")
+        except Exception as e:
+            self.log_signal.emit(f"[TELEMETRY ERROR] Connection lost: {str(e)}")
+
+
 
 class OphirTradeIDE(QMainWindow):
     def __init__(self):
@@ -1101,11 +1134,19 @@ class OphirTradeIDE(QMainWindow):
 
                 response = requests.post(cloud_url, files=files, data=metadata, timeout=15)
 
-            # 4. Handle the Cloud's Response
             if response.status_code == 200:
                 resp_json = response.json()
-                self.append_log(f"[NETWORK] SUCCESS: {resp_json.get('message', 'Cloud Node Provisioned!')}")
-                self.append_log(f"[CLOUD ID] Container ID: {resp_json.get('container_id', 'UNKNOWN')}")
+                container_id = resp_json.get("container_id")
+                self.append_log(f"[NETWORK] 🟢 SUCCESS: {resp_json.get('message')}")
+
+                # --- NEW: Boot the Telemetry Stream ---
+                if container_id:
+                    # Keep a reference to the thread so Python's garbage collector doesn't kill it
+                    self.telemetry_thread = TelemetryThread(container_id)
+                    # Wire the thread's signal directly into your UI's logging function
+                    self.telemetry_thread.log_signal.connect(self.append_log)
+                    self.telemetry_thread.start()
+
             elif response.status_code == 402:
                 self.append_error("[BILLING] DEPLOYMENT REJECTED: Insufficient Execution Credits.")
             else:
