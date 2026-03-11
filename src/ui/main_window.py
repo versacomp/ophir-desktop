@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
     QLineEdit, QComboBox, QMessageBox, QFileDialog, QInputDialog
 )
 from PyQt6.QtGui import QAction
-from PyQt6.QtCore import Qt, QSize, QSettings, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QSize, QSettings, QThread, QDateTime, pyqtSignal
 from PyQt6.QtGui import QKeySequence, QShortcut
 from ui.editor import OphirCodeEditor
 from ui.chart import OphirTradeChart
@@ -1165,7 +1165,23 @@ class OphirTradeIDE(QMainWindow):
         self.terminal.append("[SYSTEM] Disconnected from brokerage.")
 
     def append_log(self, text):
-        self.terminal.append(f"> {text}")
+        """Appends text to the UI console with a high-precision timestamp."""
+        # 1. Use PyQt's native C++ clock for exact millisecond formatting
+        timestamp = QDateTime.currentDateTime().toString("hh:mm:ss.zzz")
+
+        # 2. Handle visual spacing for newlines
+        if text.startswith("\n"):
+            clean_text = text.lstrip('\n')
+            formatted_message = f"\n[{timestamp}] {clean_text}"
+        else:
+            formatted_message = f"[{timestamp}] {text}"
+
+        # 3. Push to the UI
+        self.terminal.append(formatted_message)
+
+        # 4. Snap the scrollbar to the absolute bottom
+        scrollbar = self.terminal.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
 
     def append_error(self, text):
         # Print errors in red
