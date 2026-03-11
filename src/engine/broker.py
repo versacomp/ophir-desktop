@@ -9,6 +9,8 @@ from tastytrade.account import Account
 from tastytrade.instruments import Equity, Future
 from tastytrade.order import NewOrder, OrderAction, OrderTimeInForce, OrderType
 
+from engine.broker_utils import get_lookback_days, translate_symbol_for_yfinance
+
 load_dotenv()
 
 
@@ -118,33 +120,9 @@ class OphirBroker:
         try:
             import yfinance as yf
             import pandas as pd
-            import re
 
-            # --- TICKER TRANSLATION MATRIX ---
-            yf_symbol = symbol.upper().lstrip('/')  # Remove Tastytrade's leading slash if present
-
-            # Regex to detect Futures expiration codes (e.g., H6 for March 2026)
-            # Matches a base ticker followed by a standard month code (F,G,H,J,K,M,N,Q,U,V,X,Z) and 1-2 digits
-            match = re.match(r'^([A-Z]+)[FGHJKMNQUVXZ]\d{1,2}$', yf_symbol)
-
-            if match:
-                base = match.group(1)
-                yf_symbol = f"{base}=F"  # Convert MCDH6 -> MCD=F
-            elif yf_symbol in ["ES", "MES", "NQ", "MNQ", "RTY", "M2K", "YM", "MYM", "GC", "MGC", "CL", "MCL"]:
-                yf_symbol = f"{yf_symbol}=F"  # Catch raw base symbols just in case
-            # ---------------------------------
-
-            # Dynamic Lookback: Ensure we always get > 200 candles for the Alpha Engine
-            if interval == '1m':
-                days_back = 3
-            elif interval == '5m':
-                days_back = 5
-            elif interval == '15m':
-                days_back = 15
-            elif interval == '1h':
-                days_back = 45
-            else:
-                days_back = 5
+            yf_symbol = translate_symbol_for_yfinance(symbol)
+            days_back = get_lookback_days(interval)
 
             # Download the tape using the TRANSLATED symbol
             df = yf.download(yf_symbol, period=f"{days_back}d", interval=interval, progress=False)
