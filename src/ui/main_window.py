@@ -4,14 +4,16 @@ import time
 import datetime
 import re
 import shutil
+import requests
 import pyqtgraph as pg
+from engine.compiler import compile_strategy_package
 from PyQt6.QtWidgets import (
     QMainWindow, QDockWidget, QTextEdit,
     QToolBar, QPushButton, QToolButton, QMenu, QTabWidget, QWidget, QVBoxLayout, QLabel,
     QLineEdit, QComboBox, QMessageBox, QFileDialog, QInputDialog
 )
 from PyQt6.QtGui import QAction
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QSize, QSettings
 from PyQt6.QtGui import QKeySequence, QShortcut
 from ui.editor import OphirCodeEditor
 from ui.chart import OphirTradeChart
@@ -87,6 +89,10 @@ class OphirTradeIDE(QMainWindow):
         self.tab_widget.tabCloseRequested.connect(self._on_tab_close_requested)
         self.tab_widget.currentChanged.connect(self._on_tab_changed)
         self.setCentralWidget(self.tab_widget)
+
+        # --- WORKSPACE CONFIGURATION ---
+        self.settings = QSettings("OphirTrade", "IDE")
+        self.workspace_dir = self.settings.value("workspace_dir", "./strategies")
 
         # --- INITIALIZE THE SANDBOX (file setup only — no engine load yet) ---
         self._initialize_sandbox()
@@ -243,14 +249,13 @@ class OphirTradeIDE(QMainWindow):
             self._load_active_strategy(path)
 
     def _initialize_sandbox(self):
-        """Ensures the sandbox environment is set up and loads the alpha into the editor."""
-        sandbox_dir = "./strategies"
-        template_path = os.path.join(sandbox_dir, "template_alpha.py")
-        alpha_path = os.path.join(sandbox_dir, "alpha.py")
+        """Ensures the sandbox environment is set up in the active workspace."""
+        template_path = os.path.join(self.workspace_dir, "template_alpha.py")
+        alpha_path = os.path.join(self.workspace_dir, "alpha.py")
 
         # 1. Ensure the directory exists
-        if not os.path.exists(sandbox_dir):
-            os.makedirs(sandbox_dir)
+        if not os.path.exists(self.workspace_dir):
+            os.makedirs(self.workspace_dir)
 
         # 2. Ensure the template exists (in case they clone an empty repo)
         if not os.path.exists(template_path):
@@ -268,7 +273,7 @@ class OphirTradeIDE(QMainWindow):
         # 3. If the working alpha file doesn't exist, duplicate the template
         if not os.path.exists(alpha_path):
             shutil.copy(template_path, alpha_path)
-            print("[SYSTEM] Created new untracked alpha.py from template.")
+            print(f"[SYSTEM] Created new untracked alpha.py in {self.workspace_dir}")
 
         # 4. Load the working alpha into a tab
         with open(alpha_path, 'r', encoding='utf-8') as f:
@@ -280,13 +285,25 @@ class OphirTradeIDE(QMainWindow):
         dock = QDockWidget("Market Explorer", self)
         dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
 
-        # Instantiate our new native file explorer
-        self.file_explorer = OphirFileExplorer(workspace_dir="./strategies")
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-        # When the user double clicks a file, catch the signal and load it
+        self.btn_workspace = QPushButton("Open Workspace")
+        self.btn_workspace.setStyleSheet("""
+            QPushButton { background-color: #44475a; color: #f8f8f2; font-weight: bold; padding: 5px; border: none; border-bottom: 1px solid #2d2d30; }
+            QPushButton:hover { background-color: #6272a4; }
+        """)
+        self.btn_workspace.clicked.connect(self.action_change_workspace)
+        layout.addWidget(self.btn_workspace)
+
+        self.file_explorer = OphirFileExplorer(workspace_dir=self.workspace_dir)
         self.file_explorer.file_loaded.connect(self.load_file_to_editor)
+        self.file_explorer.path_deleted.connect(self._on_file_deleted)
+        layout.addWidget(self.file_explorer)
 
-        dock.setWidget(self.file_explorer)
+        dock.setWidget(container)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, dock)
 
         # --- Build the Dashboard Dock ---
@@ -298,6 +315,35 @@ class OphirTradeIDE(QMainWindow):
 
         # Snap it directly beneath the file explorer
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, dashboard_dock)
+
+    def _action_new_folder_in_explorer(self):
+        """File menu → New Folder: delegates to the explorer widget."""
+        self.file_explorer.action_new_folder()
+
+    def _on_file_deleted(self, path: str):
+        """Closes any open tab whose file has been deleted from the explorer."""
+        abs_path = os.path.abspath(path)
+        for i in range(self.tab_widget.count() - 1, -1, -1):
+            ed = self.tab_widget.widget(i)
+            if self._tab_paths.get(ed) == abs_path:
+                self._tab_paths.pop(ed, None)
+                self.tab_widget.removeTab(i)
+                self.append_log(f"[FILE] Closed deleted file: {os.path.basename(path)}")
+                break
+
+    def action_change_workspace(self):
+        """Opens a folder dialog and updates the active workspace."""
+        new_dir = QFileDialog.getExistingDirectory(self, "Select Strategy Workspace", self.workspace_dir)
+
+        if new_dir:
+            self.workspace_dir = new_dir
+            self.settings.setValue("workspace_dir", self.workspace_dir)
+
+            if hasattr(self.file_explorer, 'update_workspace'):
+                self.file_explorer.update_workspace(self.workspace_dir)
+
+            self._initialize_sandbox()
+            self.append_log(f"[SYSTEM] Workspace switched to: {self.workspace_dir}")
 
     def _load_active_strategy(self, file_path: str):
         """Syntax-checks then dynamically loads the strategy class from the given file."""
@@ -649,6 +695,9 @@ class OphirTradeIDE(QMainWindow):
         act_new = QAction("New File\tCtrl+N", self)
         act_new.triggered.connect(self.action_new_file)
 
+        act_new_folder = QAction("New Folder", self)
+        act_new_folder.triggered.connect(self._action_new_folder_in_explorer)
+
         act_open = QAction("Open File\tCtrl+O", self)
         act_open.triggered.connect(self.action_open_file)
 
@@ -664,6 +713,7 @@ class OphirTradeIDE(QMainWindow):
         act_save_as.triggered.connect(self.action_save_as)
 
         self.menu_file.addAction(act_new)
+        self.menu_file.addAction(act_new_folder)
         self.menu_file.addAction(act_open)
         self.menu_file.addMenu(self.menu_recent)
         self.menu_file.addSeparator()
@@ -969,9 +1019,104 @@ class OphirTradeIDE(QMainWindow):
         self.engine_thread.start()
 
     def action_deploy_live(self):
-        self.terminal.append("\n[WARNING] Waking Live Citadel Agent!")
-        self.terminal.append("[NETWORK] Connecting to tastytrade WebSocket...")
-        self.terminal.append("[SYSTEM] Awaiting market ticks...")
+        """Compiles the selected strategy scope and prepares the ZIP payload for the Cloud Registry."""
+        self.append_log("\n[SYSTEM] =========================================")
+        self.append_log("[SYSTEM] Initiating Secure Cloud Deployment...")
+
+        # Ensure the user has saved their latest code
+        self.save_current_file()
+
+        # --- NEW: Deployment Scope Dialog ---
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Select Deployment Target")
+        msg_box.setText("What would you like to compile and deploy to OphirCloud?")
+
+        btn_directory = msg_box.addButton("Strategy Folder (Multi-File)", QMessageBox.ButtonRole.ActionRole)
+        btn_active = msg_box.addButton("Active File Only", QMessageBox.ButtonRole.ActionRole)
+        msg_box.addButton(QMessageBox.StandardButton.Cancel)
+
+        msg_box.exec()
+        clicked_button = msg_box.clickedButton()
+
+        target_dir = None
+
+        if clicked_button == btn_directory:
+            # Let the user pick the specific package folder
+            target_dir = QFileDialog.getExistingDirectory(self, "Select Strategy Package", self.workspace_dir)
+            if not target_dir:
+                self.append_log("[SYSTEM] Deployment canceled by user.")
+                return
+
+        elif clicked_button == btn_active:
+            if not self.current_file_path:
+                self.append_error("[SYSTEM ERROR] No active file selected to deploy.")
+                return
+
+            # We isolate the compilation to the folder where the active file lives
+            target_dir = os.path.dirname(self.current_file_path)
+
+        else:
+            self.append_log("[SYSTEM] Deployment canceled.")
+            return
+
+        self.append_log(f"[COMPILER] Target locked: {target_dir}")
+
+        # --- NEW: Dynamic Payload Naming ---
+        # Fallback to "strategy" if the engine hasn't been loaded into the UI yet
+        engine_name = "strategy"
+        if hasattr(self, 'alpha_engine') and self.alpha_engine:
+            engine_name = self.alpha_engine.__class__.__name__
+
+        # Clean the name (e.g., CustomAlpha -> CustomAlpha_payload.zip)
+        custom_zip_name = f"{engine_name}_payload.zip"
+
+        self.append_log(f"[COMPILER] Engine detected: {engine_name}")
+        self.append_log(f"[COMPILER] Obfuscating strategy via Cython and packaging as {custom_zip_name}...")
+
+        try:
+            # 1. Compile the target directory and pass the custom zip name
+            zip_payload_path = compile_strategy_package(target_dir, custom_zip_name)
+            zip_filename = os.path.basename(zip_payload_path)
+
+            self.append_log(f"[COMPILER] 🟢 SUCCESS: Generated secure payload -> {zip_filename}")
+
+            # 2. Prepare the deployment payload
+            self.append_log("[NETWORK] Establishing secure handshake with OphirCloud...")
+
+            cloud_url = "http://localhost:8000/api/v1/deploy"
+
+            # 3. Transmit the dynamically named ZIP payload
+            with open(zip_payload_path, 'rb') as f:
+                files = {'strategy_file': (zip_filename, f, 'application/zip')}
+
+                metadata = {
+                    'symbol': self.active_symbol,
+                    'user_id': 'usr_mitch_001',
+                    'timeframe': self.combo_timeframe.currentText(),
+                    'engine_name': engine_name  # Passing this to the cloud is highly useful!
+                }
+
+                self.append_log(
+                    f"[NETWORK] Transmitting {zip_filename} payload (Size: {os.path.getsize(zip_payload_path)} bytes)...")
+
+                response = requests.post(cloud_url, files=files, data=metadata, timeout=15)
+
+            # 4. Handle the Cloud's Response
+            if response.status_code == 200:
+                resp_json = response.json()
+                self.append_log(f"[NETWORK] SUCCESS: {resp_json.get('message', 'Cloud Node Provisioned!')}")
+                self.append_log(f"[CLOUD ID] Container ID: {resp_json.get('container_id', 'UNKNOWN')}")
+            elif response.status_code == 402:
+                self.append_error("[BILLING] DEPLOYMENT REJECTED: Insufficient Execution Credits.")
+            else:
+                self.append_error(f"[NETWORK ERROR] Cloud rejected payload: {response.status_code} - {response.text}")
+
+        except requests.exceptions.ConnectionError:
+            self.append_error("[NETWORK FATAL] Could not connect to OphirCloud Registry. Is the FastAPI server running?")
+        except Exception as e:
+            self.append_error(f"[SYSTEM ERROR] Deployment sequence failed: {str(e)}")
+
+        self.append_log("[SYSTEM] =========================================\n")
 
     def action_halt_execution(self):
         self.terminal.append("\n[KILL SWITCH] 🛑 EXECUTION HALTED.")

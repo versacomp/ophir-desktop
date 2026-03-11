@@ -21,5 +21,15 @@ tastytrade>=8.0
 # Historical market data (broker fallback via yfinance)
 yfinance>=0.2.0
 
+# HTTP client (cloud deployment)
+requests>=2.31.0
+
+# Deep learning backend (stable-baselines3 dependency)
+torch>=2.0.0
+
+# Cython compilation (strategy package compiler)
+Cython>=3.0.0
+setuptools>=68.0.0
+
 # Environment configuration
 python-dotenv>=1.0.0
