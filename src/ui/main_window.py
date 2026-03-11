@@ -719,21 +719,14 @@ class OphirTradeIDE(QMainWindow):
             self.menu_recent.addAction(action)
 
     def _open_recent(self, path: str):
-        """Opens a file from the Recent Files list."""
-        if not self._confirm_discard_changes():
-            return
-
+        """Opens a file from the Recent Files list in a new tab."""
         if not os.path.exists(path):
             self.append_error(f"[FILE] File no longer exists: {path}")
             self.recent_files = [p for p in self.recent_files if p != path]
             return
         with open(path, 'r', encoding='utf-8') as f:
             content = f.read()
-        self.current_file_path = path
-        self.editor.blockSignals(True)
-        self.editor.setText(content)
-        self.editor.setModified(False)
-        self.editor.blockSignals(False)
+        self._open_in_tab(content, path)
         self.append_log(f"[FILE] Opened: {os.path.basename(path)}")
         self._load_active_strategy(path)
 
@@ -745,9 +738,21 @@ class OphirTradeIDE(QMainWindow):
         self.recent_files = self.recent_files[:8]
 
     def _on_editor_modified(self, modified: bool):
-        """Updates the window title and file label with an unsaved-changes marker."""
+        """Updates tab title, window title, and file label for the tab that fired the signal."""
+        ed = self.sender()
+        idx = self.tab_widget.indexOf(ed)
+        if idx == -1:
+            return
+
+        path = self._tab_paths.get(ed, "")
+        fname = os.path.basename(path) if path else "untitled"
+        self.tab_widget.setTabText(idx, f"{fname} *" if modified else fname)
+
+        # Only update the window chrome if this is the active tab
+        if idx != self.tab_widget.currentIndex():
+            return
+
         base = "Ophir Desktop - Quant Developer IDE"
-        fname = os.path.basename(self.current_file_path) if self.current_file_path else "untitled"
         if modified:
             self.setWindowTitle(f"{base}  —  {fname} *")
             self.lbl_current_file.setText(f"  {fname} *")
