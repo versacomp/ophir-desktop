@@ -270,15 +270,11 @@ class OphirTradeIDE(QMainWindow):
             shutil.copy(template_path, alpha_path)
             print("[SYSTEM] Created new untracked alpha.py from template.")
 
-        # 4. Load the working alpha into the code editor
+        # 4. Load the working alpha into a tab
         with open(alpha_path, 'r', encoding='utf-8') as f:
             content = f.read()
 
-        self.current_file_path = alpha_path
-        self.editor.blockSignals(True)
-        self.editor.setText(content)
-        self.editor.setModified(False)
-        self.editor.blockSignals(False)
+        self._open_in_tab(content, alpha_path)
 
     def _build_market_explorer(self):
         dock = QDockWidget("Market Explorer", self)
@@ -354,11 +350,7 @@ class OphirTradeIDE(QMainWindow):
 
     def load_file_to_editor(self, file_path, content):
         """Triggered by the file explorer double-click."""
-        self.current_file_path = file_path
-        self.editor.blockSignals(True)
-        self.editor.setText(content)
-        self.editor.setModified(False)
-        self.editor.blockSignals(False)
+        self._open_in_tab(content, file_path)
         self.terminal.append(f"[SYSTEM] Loaded {os.path.basename(file_path)}")
         self._load_active_strategy(file_path)
 
@@ -367,9 +359,11 @@ class OphirTradeIDE(QMainWindow):
         if self.current_file_path:
             with open(self.current_file_path, 'w', encoding='utf-8') as f:
                 f.write(self.editor.text())
+            fname = os.path.basename(self.current_file_path)
             self.editor.setModified(False)
+            self.tab_widget.setTabText(self.tab_widget.currentIndex(), fname)
             self._add_to_recent(self.current_file_path)
-            self.terminal.append(f"[SYSTEM] Saved {os.path.basename(self.current_file_path)}")
+            self.terminal.append(f"[SYSTEM] Saved {fname}")
             self._load_active_strategy(self.current_file_path)
         else:
             self.action_save_as()
