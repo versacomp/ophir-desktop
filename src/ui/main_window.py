@@ -867,11 +867,7 @@ class OphirTradeIDE(QMainWindow):
         with open(path, 'r', encoding='utf-8') as f:
             content = f.read()
 
-        self.current_file_path = path
-        self.editor.blockSignals(True)
-        self.editor.setText(content)
-        self.editor.setModified(False)
-        self.editor.blockSignals(False)
+        self._open_in_tab(content, path)
         self._add_to_recent(path)
         self.append_log(f"[FILE] Opened: {os.path.basename(path)}")
         self._load_active_strategy(path)
@@ -893,9 +889,12 @@ class OphirTradeIDE(QMainWindow):
             f.write(self.editor.text())
 
         self.current_file_path = path
+        fname = os.path.basename(path)
+        self.tab_widget.setTabText(self.tab_widget.currentIndex(), fname)
+        self.tab_widget.setTabToolTip(self.tab_widget.currentIndex(), os.path.abspath(path))
         self.editor.setModified(False)
         self._add_to_recent(path)
-        self.append_log(f"[FILE] Saved as: {os.path.basename(path)}")
+        self.append_log(f"[FILE] Saved as: {fname}")
         self._load_active_strategy(path)
 
     def halt_all_trading(self):
